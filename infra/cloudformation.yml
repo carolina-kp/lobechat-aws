@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: LobeChat final project stack
+
+Parameters:
+  KeyName:
+    Type: String
+    Default: lobechat-final
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  Route:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet
+      RouteTableId: !Ref RouteTable
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: LobeChat security group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: c7a.2xlarge
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref InstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref SecurityGroup
+          SubnetId: !Ref Subnet
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 60
+            VolumeType: gp3
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          exec > /var/log/user-data.log 2>&1
+
+          echo "=== Installing Docker ==="
+          apt-get update -y
+          apt-get install -y ca-certificates curl gnupg git
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          chmod a+r /etc/apt/keyrings/docker.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | tee /etc/apt/sources.list.d/docker.list
+          apt-get update -y
+          apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+          echo "=== Installing Caddy ==="
+          apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+          apt-get update -y
+          apt-get install -y caddy
+
+          echo "=== Cloning repo ==="
+          cd /opt
+          git clone https://github.com/carolina-kp/lobechat-aws.git
+          cd lobechat-aws
+
+          echo "=== Writing docker-compose.override.yml ==="
+          cat > /opt/lobechat-aws/docker-compose.override.yml <<'OVERRIDE'
+          services:
+            vllm:
+              profiles:
+                - disabled
+            linux-sandbox:
+              volumes:
+                - /tmp/ssh:/home/oriol/.ssh
+            lobe-chat:
+              environment:
+                - APP_URL=https://carolina-lobechat.duckdns.org
+                - NEXTAUTH_URL=https://carolina-lobechat.duckdns.org
+                - AUTH_URL=https://carolina-lobechat.duckdns.org
+                - AUTH_CASDOOR_ISSUER=http://carolina-lobechat.duckdns.org:47002
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                casdoor:
+                  condition: service_started
+                minio:
+                  condition: service_healthy
+          OVERRIDE
+
+          echo "=== Writing Caddyfile ==="
+          cat > /etc/caddy/Caddyfile <<'CADDY'
+          carolina-lobechat.duckdns.org {
+              reverse_proxy localhost:47000
+          }
+          CADDY
+
+          echo "=== Creating data directories ==="
+          mkdir -p /opt/lobechat-aws/data/postgres
+          mkdir -p /opt/lobechat-aws/data/minio
+          mkdir -p /opt/lobechat-aws/data/qdrant
+          mkdir -p /opt/lobechat-aws/data/mcphub
+          mkdir -p /tmp/ssh
+
+          echo "=== Waiting for .env before starting ==="
+          while [ ! -f /opt/lobechat-aws/.env ]; do
+            echo "Waiting for .env file..."
+            sleep 10
+          done
+
+          echo "=== Starting services ==="
+          cd /opt/lobechat-aws
+          docker compose up -d --build
+
+          echo "=== Restarting Caddy ==="
+          systemctl reload-or-restart caddy
+
+          echo "=== INSTALLATION COMPLETE ==="
+
+      Tags:
+        - Key: Name
+          Value: lobechat-final
+
+Outputs:
+  PublicIP:
+    Value: !GetAtt EC2Instance.PublicIp
+    Description: EC2 Public IP
+  PublicDNS:
+    Value: !GetAtt EC2Instance.PublicDnsName
+    Description: EC2 Public DNS
