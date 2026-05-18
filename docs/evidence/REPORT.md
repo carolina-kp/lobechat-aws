@@ -7,8 +7,8 @@
 | Student name | Carolina Kogan |
 | ESADE email | carolina.kogan@alumni.esade.edu |
 | GitHub repo URL | https://github.com/carolina-kp/lobechat-aws (private; user `joseporiolrius` invited as collaborator) |
-| Latest commit SHA | `32165e9a5266e7e3cb4d0db4d0b6bb55fde2aded` |
-| Final tag | `v0.6.0` |
+| Latest commit SHA | `5ae9b31169a225d8f7567d2c65d4433e711b60fb` |
+| Final tag | `v0.7.0` |
 
 ## 2. Public URL
 
