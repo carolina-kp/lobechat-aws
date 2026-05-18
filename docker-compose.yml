@@ -22,9 +22,6 @@ services:
     container_name: lobe-chat
     ports:
       - "${LOBECHAT_PORT:-47000}:3210"
-    volumes:
-      # HOTFIX: Patch MCP callTool to add session retry logic
-      - ./patches/route.js:/app/.next/server/app/(backend)/trpc/tools/[trpc]/route.js:ro
     environment:
       # App configuration
       - APP_URL=http://${HOST_DOMAIN:-localhost}:${LOBECHAT_PORT:-47000}
@@ -42,9 +39,9 @@ services:
       # Trust custom hostname for NextAuth
       - AUTH_TRUST_HOST=true
       # S3 Storage configuration
-      - S3_ENDPOINT=http://${HOST_DOMAIN:-localhost}:${MINIO_PORT:-47005}
+      - S3_ENDPOINT=https://${HOST_DOMAIN:-localhost}
       - S3_BUCKET=${S3_BUCKET:-lobe}
-      - S3_PUBLIC_DOMAIN=http://${HOST_DOMAIN:-localhost}:${MINIO_PORT:-47005}
+      - S3_PUBLIC_DOMAIN=https://${HOST_DOMAIN:-localhost}
       - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
       - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - S3_ENABLE_PATH_STYLE=1
@@ -192,7 +189,7 @@ services:
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
-      - MINIO_API_CORS_ALLOW_ORIGIN=http://${HOST_DOMAIN:-localhost}:${LOBECHAT_PORT:-47000}
+      - MINIO_API_CORS_ALLOW_ORIGIN=${MINIO_API_CORS_ALLOW_ORIGIN:-https://${HOST_DOMAIN:-localhost}}
     command: server /data --console-address ":9001"
     restart: unless-stopped
     healthcheck:
