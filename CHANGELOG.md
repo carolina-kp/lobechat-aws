@@ -1,3 +1,10 @@
+## v0.7.0 (2026-05-19)
+
+### Feat
+
+- add written answers Q1-Q4, evidence, screenshots and diagrams
+- add CloudFormation template for EC2 deployment
+
 ## v0.6.0 (2026-05-04)
 
 ### Feat
