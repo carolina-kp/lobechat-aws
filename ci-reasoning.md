@@ -36,7 +36,7 @@ inside can escape to the host. Hadolint flags this as DL3002.
 curling "latest" release URLs with no version pin or checksum verification
 (visible across the RUN blocks starting around line 35 onwards). If any of those
 URLs is hijacked or silently updated, the image is compromised with no way to
-detect it. Line 19 writes `oriol ALL=(ALL) NOPASSWD:ALL` to
+detect it. Line 21 writes `oriol ALL=(ALL) NOPASSWD:ALL` to
 `/etc/sudoers.d/oriol`, giving any process running in the sandbox full
 passwordless root access.
 
@@ -52,7 +52,7 @@ EC2. The gate catches that in seconds on every push without starting anything.
 
 `docker-compose.yml` line 13 sets `sslmode=disable` in the casdoor service
 `dataSourceName`, meaning all casdoor-to-postgres traffic is unencrypted in
-transit. The lobe-chat `DATABASE_URL` at line 21 specifies no TLS parameter
+transit. The lobe-chat `DATABASE_URL` at line 29 specifies no TLS parameter
 at all. Line 100 bind-mounts `~/.aws:/root/.aws:ro` into the mcphub container,
 exposing the host AWS credentials directory inside the container. Line 106 pulls
 `qdrant/qdrant:latest` and line 182 pulls `minio/minio:latest` — both unpinned
