@@ -80,7 +80,7 @@ jobs:
       # Note: .gitignore already excludes .env, aws_credentials.yaml, *.pem,
       # and config/ssh/ so a clean tree will not report committed secrets.
       - name: Gitleaks - secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
@@ -111,7 +111,7 @@ jobs:
       # Bounded to origin/main..HEAD so only new commits are linted -
       # an unbounded check would fail on pre-existing non-conventional commits.
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8.1.0
 
       - name: Commitizen check - new commits only (mirrors .githooks/commit-msg)
         run: |
