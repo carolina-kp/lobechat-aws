@@ -1,0 +1,149 @@
+﻿name: CI — Build-free static analysis
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static-analysis:
+    name: Static Analysis Gates
+    runs-on: ubuntu-latest
+
+    steps:
+      # Full history needed by gitleaks (secret scan) and cz check (commit lint)
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ────────────────────────────────────────────────────────────────
+      # COMPOSE INTERPOLATION FIX
+      # docker-compose.yml references undefined ${VAR} secrets at
+      # parse time (NEXT_AUTH_SECRET, AUTH_CASDOOR_ID, AUTH_CASDOOR_SECRET,
+      # KEY_VAULTS_SECRET, OPENROUTER_API_KEY, HF_TOKEN, SSH_HOST, etc.).
+      # We copy .env.example → .env so docker compose config can interpolate
+      # them with placeholder values. This is safe because:
+      #   (a) .env.example contains no real secrets — only dummy/example values,
+      #   (b) .gitignore already ignores .env, so this copy is never committed.
+      # ────────────────────────────────────────────────────────────────
+      - name: Supply dummy env for Compose interpolation
+        run: cp .env.example .env
+
+      # ────────────────────────────────────────────────────────────────
+      # GATE A — Hadolint: Dockerfile linting
+      # Flags unpinned FROM images, missing USER, ADD vs COPY, etc.
+      # Both Dockerfiles must be checked — covering one is not enough.
+      # continue-on-error: true — warn-only so real findings are visible
+      # without blocking the run (this repo has known findings, e.g.
+      # mcphub.Dockerfile FROM samanhappy/mcphub:latest is unpinned).
+      # ────────────────────────────────────────────────────────────────
+      - name: Hadolint — dockerfiles/mcphub.Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dockerfiles/mcphub.Dockerfile
+        continue-on-error: true  # warn-only: surfaces findings without failing the run
+
+      - name: Hadolint — dockerfiles/sandbox.Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dockerfiles/sandbox.Dockerfile
+        continue-on-error: true  # warn-only: surfaces findings without failing the run
+
+      # ────────────────────────────────────────────────────────────────
+      # GATE B — docker compose config
+      # Validates Compose schema and interpolation ONLY.
+      # We deliberately use 'config -q' and never 'up', 'build', or 'run':
+      # the vllm service requires an NVIDIA GPU and declares start_period: 300s;
+      # the 11-service graph cannot run on a standard GitHub-hosted runner.
+      # ────────────────────────────────────────────────────────────────
+      - name: Compose config validate (schema + interpolation, no build/up)
+        run: |
+          # Validates YAML schema and variable interpolation only — never starts containers
+          docker compose -f docker-compose.yml config -q
+
+      # ────────────────────────────────────────────────────────────────
+      # GATE C — yamllint
+      # Lints YAML syntax in docker-compose.yml and this workflow itself.
+      # ────────────────────────────────────────────────────────────────
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: yamllint — docker-compose.yml and ci.yml
+        run: |
+          yamllint -d "{extends: relaxed, rules: {line-length: {max: 200}}}" \
+            docker-compose.yml \
+            .github/workflows/ci.yml
+        continue-on-error: true  # warn-only: surfaces findings without failing the run
+
+      # ────────────────────────────────────────────────────────────────
+      # GATE D — actionlint
+      # Validates GitHub Actions workflow syntax and logic.
+      # ────────────────────────────────────────────────────────────────
+      - name: Install actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          sudo mv actionlint /usr/local/bin/
+
+      - name: actionlint — .github/workflows/ci.yml
+        run: actionlint .github/workflows/ci.yml
+        continue-on-error: true  # warn-only: surfaces findings without failing the run
+
+      # ────────────────────────────────────────────────────────────────
+      # GATE E — Gitleaks: secret scanning
+      # Scans the full git history for accidentally committed secrets
+      # (API keys, tokens, passwords). Needs fetch-depth: 0 (done above).
+      # Note: .gitignore already excludes .env, aws_credentials.yaml, *.pem,
+      # and config/ssh/ — so a clean tree will not report committed secrets.
+      # ────────────────────────────────────────────────────────────────
+      - name: Gitleaks — secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true  # warn-only: surfaces findings without failing the run
+
+      # ────────────────────────────────────────────────────────────────
+      # GATE F — Trivy: vulnerability + misconfiguration scanning
+      # Run in BOTH modes as required:
+      #   fs mode    — dependency/vulnerability scan of the working tree
+      #   config mode — misconfiguration scan (Dockerfiles, Compose file)
+      # ────────────────────────────────────────────────────────────────
+      - name: Trivy — fs (vulnerability / dependency scan)
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          exit-code: 0       # warn-only
+        continue-on-error: true  # warn-only: surfaces findings without failing the run
+
+      - name: Trivy — config (misconfiguration scan: Dockerfiles + Compose)
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: config
+          scan-ref: .
+          exit-code: 0       # warn-only
+        continue-on-error: true  # warn-only: surfaces findings without failing the run
+
+      # ────────────────────────────────────────────────────────────────
+      # GATE G — Conventional Commits check (commitizen)
+      # Mirrors the local gate in .githooks/commit-msg (which uses
+      # --commit-msg-file, a path that does not exist in CI).
+      # Bounded to origin/main..HEAD so only YOUR new commits are linted —
+      # an unbounded check would fail on pre-existing non-conventional commits
+      # already in the repo history.
+      # Uses uv (the project's package manager) to run cz from pyproject.toml.
+      # ────────────────────────────────────────────────────────────────
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Commitizen check — new commits only (mirrors .githooks/commit-msg)
+        run: |
+          uv run cz check --rev-range origin/main..HEAD
+        continue-on-error: true  # warn-only: new branch may have 0 commits ahead of main
+
+      # ────────────────────────────────────────────────────────────────
+      # NOTE — tests/ are intentionally excluded
+      # tests/ contains live-stack integration tests (test_vllm.py imports
+      # openai and httpx and hits running endpoints such as vLLM /health).
+      # These are NOT unit tests and cannot run in a build-free pipeline
+      # on a standard GitHub runner. pytest is therefore not invoked here.
+      # ────────────────────────────────────────────────────────────────
