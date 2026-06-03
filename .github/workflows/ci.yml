@@ -90,7 +90,7 @@ jobs:
       #   fs mode     - dependency/vulnerability scan of the working tree
       #   config mode - misconfiguration scan (Dockerfiles, Compose file)
       - name: Trivy - fs (vulnerability / dependency scan)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -98,7 +98,7 @@ jobs:
         continue-on-error: true
 
       - name: Trivy - config (misconfiguration scan)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
