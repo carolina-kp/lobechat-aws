@@ -12,7 +12,7 @@ jobs:
 
     steps:
       # Full history needed by gitleaks (secret scan) and cz check (commit lint)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
 
