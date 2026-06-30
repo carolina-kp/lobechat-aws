@@ -65,19 +65,18 @@ User --> LobeChat (:47000)
 
 ## Credentials
 
+> **Note:** These are local development defaults for testing only — set your own values in `.env` before deploying. Never commit real credentials.
+
 | Service | Username | Password |
-|---------|----------|----------|
-| LobeChat | user | pswd123 |
-| Casdoor Admin | admin | pswd123 |
-| MinIO | minioadmin | minioadmin |
-| MCPHub | admin | admin123 |
-| PostgreSQL | postgres | postgres |
-| vLLM | API key: `sk-local` (no username) | |
+| --- | --- | --- |
+| LobeChat | user | `<set-in-.env>` |
+| Casdoor Admin | admin | `<set-in-.env>` |
+| MinIO | `<set-in-.env>` | `<set-in-.env>` |
+| MCPHub | admin | `<set-in-.env>` |
+| PostgreSQL | postgres | `<set-in-.env>` |
+| vLLM | API key: `<set-in-.env>` (no username) | |
 | Qdrant | none (open on local network) | |
 | Hayhooks | none (open on local network) | |
-
-vLLM model (OpenAI-compatible, API key `sk-local`):
-- `google/gemma-4-E4B-it` at `http://localhost:47007/v1` (Gemma 4, native function calling for MCP)
 
 ## Commands
 
